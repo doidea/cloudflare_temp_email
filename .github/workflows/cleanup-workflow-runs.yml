@@ -1,0 +1,73 @@
+name: Cleanup Workflow Runs
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *" # 每天 UTC 3 点执行一次
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete old workflow runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = 'doidea';
+            const repo = 'cloudflare_temp_email';
+
+            const keepLatest = 5; // 保留最近 5 条
+            const perPage = 100;
+
+            let page = 1;
+            let allRuns = [];
+
+            while (true) {
+              const res = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                per_page: perPage,
+                page
+              });
+
+              const runs = res.data.workflow_runs;
+              if (!runs || runs.length === 0) break;
+
+              allRuns = allRuns.concat(runs);
+              if (runs.length < perPage) break;
+              page++;
+            }
+
+            core.info(`Total workflow runs found: ${allRuns.length}`);
+
+            // 按创建时间从新到旧排序
+            allRuns.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            // 排除当前执行的这条 run，避免误删自己
+            const currentRunId = Number(process.env.GITHUB_RUN_ID);
+
+            const runsToDelete = allRuns
+              .filter(run => run.id !== currentRunId)
+              .slice(keepLatest);
+
+            core.info(`Runs to delete: ${runsToDelete.length}`);
+
+            for (const run of runsToDelete) {
+              try {
+                core.info(`Deleting run: ${run.id} | ${run.name} | ${run.created_at}`);
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id
+                });
+              } catch (error) {
+                core.warning(`Failed to delete run ${run.id}: ${error.message}`);
+              }
+            }
+
+            core.info('Cleanup finished.');

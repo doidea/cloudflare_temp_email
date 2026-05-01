@@ -2,8 +2,6 @@ name: Cleanup Workflow Runs
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 3 * * *" # 每天 UTC 3 点执行一次
 
 permissions:
   actions: write
